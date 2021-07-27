@@ -2,7 +2,8 @@
     "extends": "tsconfig-collaborne",
     "compilerOptions": {
         "outDir": "dist",
-        "module": "es6"
+        "module": "es6",
+        "declaration": true
     },
     "include": [
         "src/**/*"
