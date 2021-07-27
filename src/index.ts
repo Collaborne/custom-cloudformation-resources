@@ -9,7 +9,7 @@ export {
 
 // Export required interfaces
 export { Logger } from './logger';
-export { CustomResource } from './custom-resource';
+export { CustomResource, Response } from './custom-resource';
 
 // Export actual resources
 export { ACMCloudfrontCertificate } from './acm-certificate';
