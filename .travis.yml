@@ -1,0 +1,19 @@
+language: node_js
+node_js:
+- lts/erbium
+cache:
+  directories:
+  - node_modules
+script:
+- npm test
+after_success:
+- npm run build
+deploy:
+- provider: npm
+  email: npm@collaborne.com
+  api_key:
+    secure: "fUmF+uHCndDCDFoixKUe3La0oC4AbttICIywUFdK8b1d/kJdnKb7Z2LDdUiz0cjyiFo/ZaHDPd+N0Cx19bsmvVjkgny2kNg3bzaJHtPX/335+LjkVjItY1/1WLmw/dy5iwDKjVEmb7T2caqWNQNV70ydB7v6mmZ++aLhVpb5POKrgSJqVatpcvjy5Ya7IH5f0u42kakwkdxaDMbHNgV2LzC+Z7+Q0n/kwW/H7FnF3adLj7XeLxE4HxjlUBBf5fNtczi0qJ/Hikrmyi/5I17xD3yO2A0GJmQGf6Moab1VNtQ+KTHMJkKSYYQJdpMB5uCeo5xXHFsrp6V+9QxtnZBtV0sa5uHA5hilpffUZPU5MvwGlQFGYkNQPoMCCZuP5HsRoefqAbmCrEIRdPyFVVAQmWpGl8VXRPpGNGL1iQ6pwgTURLIZ2CCU+t6AETvQvX4no830u8Y++/lPop6cmPVEx0h0D1jK7KTXR994j+gWAyUO//Pq6XnkZDeU/EdH+iXqrc4QYNUz/I+eWHf+DSR9G+ggWNEcpGgUUI3ybQP+Sq1NcinVTrVjDW1sn567K1kJ0NIxI2wYG+qtKgV7qM3leDdZ6cvwlDvHsqGtErqlc5OqDki+zR93p6OP6PR0fSuMAdo8kpn62lx/kFV3qA04gP9dlnYnBuk/uL9aJXK9Pzo="
+  on:
+    tags: true
+    condition: $(node -e 'console.log("v" + require("./package.json").version)') = ${TRAVIS_TAG}
+  skip_cleanup: true
