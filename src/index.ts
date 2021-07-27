@@ -12,4 +12,4 @@ export { Logger } from './logger';
 export { CustomResource, Response } from './custom-resource';
 
 // Export actual resources
-export { ACMCloudfrontCertificate } from './acm-certificate';
+export { ACMCertificate } from './acm-certificate';

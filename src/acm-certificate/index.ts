@@ -100,7 +100,7 @@ function getCertificateId(certificateArn: string): string {
 }
 
 // XXX: The AWS::CertificateManager::Certificate uses the ARN as Ref, not an id (and then also doesn't have a .Arn attribute)
-export class ACMCloudfrontCertificate extends CustomResource<
+export class ACMCertificate extends CustomResource<
 	ResourceAttributes,
 	typeof SCHEMA
 > {
