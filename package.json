@@ -1,0 +1,47 @@
+{
+  "name": "@collaborne/custom-cloudformation-resources",
+  "version": "0.0.1",
+  "description": "Custom CloudFormation resources",
+  "main": "dist/index.js",
+  "scripts": {
+    "lint": "npm run lint:ts",
+    "lint:ts": "eslint --report-unused-disable-directives $(node -p 'require(\"./tsconfig.json\").include.map(include => `'\\${include}.\\{js,ts,tsx\\}'`).join(\" \")')",
+    "test": "echo 'No tests yet'",
+    "build": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Collaborne/custom-cloudformation-resources.git"
+  },
+  "keywords": [
+    "CloudFormation",
+    "custom",
+    "resource",
+    "ACM",
+    "certificate"
+  ],
+  "author": "Andreas Kohn <andreas.kohn@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Collaborne/custom-cloudformation-resources/issues"
+  },
+  "homepage": "https://github.com/Collaborne/custom-cloudformation-resources#readme",
+  "devDependencies": {
+    "@collaborne/json-schema-to-type": "^1.0.1",
+    "@types/node": "^16.4.3",
+    "aws-sdk": "^2.954.0",
+    "eslint": "^7.31.0",
+    "eslint-config-collaborne": "^2.3.0-3",
+    "eslint-plugin-disable": "^2.0.1",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-prettier": "^3.3.1",
+    "eslint-plugin-promise": "^4.3.1",
+    "prettier": "^2.2.1",
+    "tsconfig-collaborne": "^1.5.0",
+    "typescript": "^4.3.5"
+  },
+  "engines": {
+    "node": ">=14.14.0"
+  }
+}

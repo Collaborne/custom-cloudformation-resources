@@ -1,0 +1,10 @@
+{
+    "extends": "tsconfig-collaborne",
+    "compilerOptions": {
+        "outDir": "dist",
+        "module": "es6"
+    },
+    "include": [
+        "src/**/*"
+    ]
+}
