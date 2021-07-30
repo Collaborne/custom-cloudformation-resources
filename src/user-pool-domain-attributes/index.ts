@@ -4,7 +4,6 @@ import { SchemaType } from '@collaborne/json-schema-to-type';
 
 import { CustomResource, Response } from '../custom-resource';
 import { Logger } from '../logger';
-import { DomainDescriptionType } from 'aws-sdk/clients/cognitoidentityserviceprovider';
 
 const SCHEMA = {
 	type: 'object' as const,
@@ -16,7 +15,10 @@ const SCHEMA = {
 	required: ['UserPoolDomain' as const],
 };
 
-type ResourceAttributes = Pick<DomainDescriptionType, 'CloudFrontDistribution'>;
+type ResourceAttributes = Pick<
+	CognitoIdentityServiceProvider.DomainDescriptionType,
+	'CloudFrontDistribution'
+>;
 
 export class UserPoolDomainAttributes extends CustomResource<
 	ResourceAttributes,
