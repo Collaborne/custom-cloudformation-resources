@@ -76,8 +76,6 @@ export abstract class CustomResource<
 
 	protected async processRequest(request: CustomResourceRequest): Promise<{
 		status: ResponseStatus;
-		statusReason?: string;
-		response: Response<ResourceAttributes>;
 	}> {
 		// TODO: validate the parameters to conform to the schema
 
@@ -138,11 +136,6 @@ export abstract class CustomResource<
 		);
 		return {
 			status,
-			statusReason,
-			response: {
-				physicalResourceId: responsePhysicalResourceId,
-				attributes: response?.attributes,
-			},
 		};
 	}
 }
