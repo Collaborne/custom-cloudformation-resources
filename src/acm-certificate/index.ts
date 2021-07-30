@@ -2,7 +2,11 @@ import { ACM, Route53 } from 'aws-sdk';
 
 import type { SchemaType } from '@collaborne/json-schema-to-type';
 
-import { CustomResource, Response } from '../custom-resource';
+import {
+	ContinuationRequired,
+	CustomResource,
+	Response,
+} from '../custom-resource';
 import { Logger } from '../logger';
 import { isDefined } from '../utils';
 
@@ -102,7 +106,8 @@ function getCertificateId(certificateArn: string): string {
 // XXX: The AWS::CertificateManager::Certificate uses the ARN as Ref, not an id (and then also doesn't have a .Arn attribute)
 export class ACMCertificate extends CustomResource<
 	ResourceAttributes,
-	typeof SCHEMA
+	typeof SCHEMA,
+	Response<ResourceAttributes>
 > {
 	private acm = new ACM({ region: 'us-east-1' });
 	private route53 = new Route53();
@@ -114,12 +119,23 @@ export class ACMCertificate extends CustomResource<
 	public async createResource(
 		physicalResourceId: string,
 		params: SchemaType<typeof SCHEMA>,
-	): Promise<Response<ResourceAttributes>> {
-		const attributes = await this.createCertificate(params);
-		return {
-			physicalResourceId: `${physicalResourceId}/${attributes.CertificateId}`,
-			attributes,
-		};
+		continuationAttributes: Response<ResourceAttributes>,
+	): Promise<
+		| Response<ResourceAttributes>
+		| ContinuationRequired<Response<ResourceAttributes>>
+	> {
+		let response: Response<ResourceAttributes>;
+		if (continuationAttributes) {
+			response = continuationAttributes;
+		} else {
+			const attributes = await this.createCertificate(params);
+			response = {
+				physicalResourceId: `${physicalResourceId}/${attributes.CertificateId}`,
+				attributes,
+			};
+		}
+
+		return this.maybeContinuation(response);
 	}
 
 	public async deleteResource(
@@ -160,7 +176,15 @@ export class ACMCertificate extends CustomResource<
 		physicalResourceId: string,
 		params: SchemaType<typeof SCHEMA>,
 		oldParams: unknown,
-	): Promise<Response<ResourceAttributes>> {
+		continuationAttributes: Response<ResourceAttributes>,
+	): Promise<
+		| Response<ResourceAttributes>
+		| ContinuationRequired<Response<ResourceAttributes>>
+	> {
+		if (continuationAttributes) {
+			return this.maybeContinuation(continuationAttributes);
+		}
+
 		const {
 			CertificateTransparencyLoggingPreference: ctLoggingPreference,
 			Tags: tags = [],
@@ -287,10 +311,10 @@ export class ACMCertificate extends CustomResource<
 			this.logger.log(
 				`Replaced certificate ${physicalResourceId} with ${newPhysicalResourceId}`,
 			);
-			return {
+			return this.maybeContinuation({
 				physicalResourceId: newPhysicalResourceId,
 				attributes: newAttributes,
-			};
+			});
 		}
 	}
 
@@ -502,12 +526,6 @@ export class ACMCertificate extends CustomResource<
 			this.logger.log(`Route53 change set: ${result.ChangeInfo.Id}`);
 		}
 
-		// In theory we could proceed, as we have the ARN -- but this will just lead to failures downstream
-		// as the certificate isn't necessarily issued yet.
-		await this.acm
-			.waitFor('certificateValidated', { CertificateArn: certificateArn })
-			.promise();
-
 		return {
 			Arn: certificateArn,
 			CertificateId: getCertificateId(certificateArn),
@@ -545,5 +563,42 @@ export class ACMCertificate extends CustomResource<
 		return Object.keys(params).filter(key =>
 			isChanged(params[key], (oldParams as Record<any, any>)[key]),
 		);
+	}
+
+	protected async maybeContinuation(
+		response: Response<ResourceAttributes>,
+	): Promise<
+		| Response<ResourceAttributes>
+		| ContinuationRequired<Response<ResourceAttributes>>
+	> {
+		// Initially wee have the id in the response, so we simply check now whether the certificate is valid.
+		// If it is, great, return the response. Otherwise stuff the whole response into continuationAttributes, and
+		// try again in a minute or two.
+		const certificateArn = response.attributes?.Arn;
+		if (!certificateArn) {
+			throw new Error('Missing certificate ARN');
+		}
+
+		const { Certificate: certificate } = await this.acm
+			.describeCertificate({ CertificateArn: certificateArn })
+			.promise();
+		if (!certificate) {
+			throw new Error(`Cannot find certificate ${certificateArn}`);
+		}
+
+		if (certificate.Status === 'ISSUED') {
+			this.logger.log('Certificate is ISSUED, stopping continuations');
+			return response;
+		} else if (certificate.Status === 'PENDING_VALIDATION') {
+			this.logger.log(
+				`Certificate is PENDING_VALIDATION, requesting continuation`,
+			);
+			return {
+				continuationAfter: Number(process.env.RETRY_INTERVAL_SECONDS ?? '300'),
+				continuationAttributes: response,
+			};
+		} else {
+			throw new Error(`Certificate is in invalid status ${certificate.Status}`);
+		}
 	}
 }
