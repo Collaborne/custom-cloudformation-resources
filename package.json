@@ -43,5 +43,9 @@
   },
   "engines": {
     "node": ">=14.14.0"
+  },
+  "dependencies": {
+    "@types/crc": "^3.4.0",
+    "crc": "^3.8.0"
   }
 }
