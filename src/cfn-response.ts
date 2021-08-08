@@ -10,9 +10,17 @@ export const FAILED = 'FAILED';
 
 export type ResponseStatus = typeof SUCCESS | typeof FAILED;
 
+/**
+ * See <https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/crpg-ref-requests.html>
+ */
 export interface CustomResourceRequest {
-	RequestType: 'Create' | 'Update' | 'Delete';
+	/**
+	 * The service token used for actually invoking the handler
+	 *
+	 * Note: This field is not documented by AWS, but it is visible both in dumps and other blog posts/medium articles.
+	 */
 	ServiceToken: string;
+	RequestType: 'Create' | 'Update' | 'Delete';
 	ResponseURL: string;
 	StackId: string;
 	RequestId: string;
