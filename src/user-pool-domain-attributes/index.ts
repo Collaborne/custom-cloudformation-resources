@@ -11,8 +11,13 @@ const SCHEMA = {
 		UserPoolDomain: {
 			type: 'string' as const,
 		},
+		UserPoolId: {
+			type: 'string' as const,
+			comment:
+				'Required to ensure that the attributes get updated when the domain is moved between user pools',
+		},
 	},
-	required: ['UserPoolDomain' as const],
+	required: ['UserPoolDomain' as const, 'UserPoolId'],
 };
 
 type ResourceAttributes = Pick<
