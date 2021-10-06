@@ -57,6 +57,15 @@ export function send(
 		NoEcho: noEcho,
 		Data: responseData,
 	});
+	if (responseBody.length >= 4096) {
+		// Warn, but proceed. The problem is that at this point we cannot do anything anymore -- CF will fail, and will do
+		// rollbacks as needed.
+		// We do log the complete body here, so that the operator/developer hopefully sees what can be shortened.
+		// See https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/crpg-ref-responses.html#crpg-ref-responses-fields
+		console.warn(
+			`Response body length of ${responseBody.length} bytes exceeds CloudFormation limit of 4KiB: ${responseBody}`,
+		);
+	}
 
 	const options = {
 		method: 'PUT',
