@@ -242,7 +242,7 @@ export abstract class CustomResource<
 			} ? ${when.getFullYear()}`;
 
 			this.logger.log(
-				`Scheduling continuation using CWE rule ${continuationRuleName} after ${continuationAfter}s (at ${cronExpression}) `,
+				`Scheduling continuation using CWE rule ${continuationRuleName} after ${continuationAfter}s (at ${cronExpression})`,
 			);
 			const schedulePutRuleParams: CloudWatchEvents.PutRuleRequest = {
 				Name: continuationRuleName,
