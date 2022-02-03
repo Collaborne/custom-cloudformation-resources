@@ -57,6 +57,10 @@ export abstract class CustomResource<
 	private cwEvents = new CloudWatchEvents({ apiVersion: '2015-10-07' });
 	private requestQueue: (() => Promise<void>)[] = [];
 
+	private currentRequest?:
+		| CustomResourceRequest
+		| ContinuedCustomResourceRequest<ContinuationAttributes>;
+
 	constructor(
 		protected readonly schema: S,
 		protected readonly logicalResourceId: string,
@@ -88,7 +92,35 @@ export abstract class CustomResource<
 		Response<ResourceAttributes> | ContinuationRequired<ContinuationAttributes>
 	>;
 
-	public handleRequest(
+	public async handleRequest(
+		request:
+			| CustomResourceRequest
+			| ContinuedCustomResourceRequest<ContinuationAttributes>,
+	): Promise<ResponseStatus> {
+		try {
+			this.currentRequest = request;
+			return await this.handleRequestInner(request);
+		} finally {
+			this.currentRequest = undefined;
+		}
+	}
+
+	/**
+	 * Get the request that is currently being processed
+	 *
+	 * This is mostly intended for integrations that want to watch the state of their
+	 * resources, the returned value should not be changed in any way.
+	 *
+	 * @returns the current request when called during an execution of {@link handleRequest}, otherwise `undefined`
+	 */
+	public get request():
+		| undefined
+		| CustomResourceRequest
+		| ContinuedCustomResourceRequest<ContinuationAttributes> {
+		return this.currentRequest;
+	}
+
+	protected handleRequestInner(
 		request:
 			| CustomResourceRequest
 			| ContinuedCustomResourceRequest<ContinuationAttributes>,
