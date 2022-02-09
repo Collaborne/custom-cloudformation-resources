@@ -10,6 +10,12 @@ import {
 } from './cfn-response';
 import { Logger } from './logger';
 
+const {
+	/** ARN of the role to use with CloudWatch Events */
+	CW_EVENTS_CONTINUATION_RULE_ROLE_ARN,
+	CW_EVENTS_CONTINUATION_TARGET_ROLE_ARN,
+} = process.env;
+
 export interface Response<ResourceAttributes extends unknown> {
 	physicalResourceId?: string;
 	attributes?: ResourceAttributes;
@@ -229,8 +235,8 @@ export abstract class CustomResource<
 			const { continuationAfter, continuationAttributes } = response;
 			const continuationRuleName = this.getContinuationRuleName(request);
 
-			// XXX: Magic! Needs to be documented that this can be set to an ARN of the role to use.
-			const ruleRoleArn = process.env.CW_EVENTS_CONTINUATION_RULE_ROLE_ARN;
+			const ruleRoleArn = CW_EVENTS_CONTINUATION_RULE_ROLE_ARN;
+			const targetRoleArn = CW_EVENTS_CONTINUATION_TARGET_ROLE_ARN;
 
 			// Ideally we want to put the target for the continuation first so that we don't miss
 			// our own goal, but CWE doesn't work this way.
@@ -257,7 +263,7 @@ export abstract class CustomResource<
 							...request,
 							ContinuationAttributes: continuationAttributes,
 						}),
-						RoleArn: process.env.CW_EVENTS_CONTINUATION_TARGET_ROLE_ARN,
+						RoleArn: targetRoleArn,
 					},
 				],
 			};
