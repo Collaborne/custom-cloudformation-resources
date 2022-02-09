@@ -271,13 +271,17 @@ export abstract class CustomResource<
 
 			const now = new Date();
 			const when = new Date(now.getTime() + continuationAfter * 1000);
-			// Round up to the next full minute, as we won't be getting scheduling if the time isn't in the future.
+
+			// Build a cron expression for CWE
+			// - We must use GMT
+			// - We must round up to the next full minute, as we won't be getting scheduling if the time isn't in the future.
+			// See also https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/ScheduledEvents.html
 			const cronExpression = `${Math.max(
-				now.getMinutes() + 1,
-				when.getMinutes(),
-			)} ${when.getHours()} ${when.getDate()} ${
-				when.getMonth() + 1
-			} ? ${when.getFullYear()}`;
+				now.getUTCMinutes() + 1,
+				when.getUTCMinutes(),
+			)} ${when.getUTCHours()} ${when.getUTCDate()} ${
+				when.getUTCMonth() + 1
+			} ? ${when.getUTCFullYear()}`;
 
 			this.logger.log(
 				`Scheduling continuation using CWE rule ${continuationRuleName} after ${continuationAfter}s (at ${cronExpression})`,
