@@ -1,6 +1,6 @@
 {
   "name": "@collaborne/custom-cloudformation-resources",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Custom CloudFormation resources",
   "main": "dist/index.js",
   "scripts": {
