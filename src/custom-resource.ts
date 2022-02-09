@@ -13,6 +13,17 @@ import { Logger } from './logger';
 const {
 	/** ARN of the role to use with CloudWatch Events */
 	CW_EVENTS_CONTINUATION_RULE_ROLE_ARN,
+	/**
+	 * ARN of the optional role to use by CloudWatch Events to use the service token
+	 *
+	 * From the `PutTargets` documentation:
+	 * > To be able to make API calls against the resources that you own, Amazon EventBridge needs
+	 * > the appropriate permissions. For Lambda and Amazon SNS resources, EventBridge relies on
+	 * > resource-based policies. For EC2 instances, Kinesis Data Streams, Step Functions state
+	 * > machines and API Gateway REST APIs, EventBridge relies on IAM roles that you specify in the
+	 * > RoleARN argument in PutTargets. For more information, see Authentication and Access Control
+	 * > in the Amazon EventBridge User Guide .
+	 */
 	CW_EVENTS_CONTINUATION_TARGET_ROLE_ARN,
 } = process.env;
 
