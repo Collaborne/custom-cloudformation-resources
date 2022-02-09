@@ -270,16 +270,18 @@ export abstract class CustomResource<
 			await this.cwEvents.putTargets(putTargetsParams).promise();
 
 			const now = new Date();
-			const when = new Date(now.getTime() + continuationAfter * 1000);
+			const whenTs =
+				Math.ceil((now.getTime() / 1000 + continuationAfter) / 60) * 60 * 1000;
+			// Bump up to the next full minute, as we won't be getting scheduling if the time isn't "far enough"
+			// in the future.
+			const when = new Date(whenTs);
+			if (when.getMinutes() === now.getMinutes()) {
+				when.setMinutes(when.getMinutes() + 1);
+			}
 
 			// Build a cron expression for CWE
-			// - We must use GMT
-			// - We must round up to the next full minute, as we won't be getting scheduling if the time isn't in the future.
 			// See also https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/ScheduledEvents.html
-			const cronExpression = `${Math.max(
-				now.getUTCMinutes() + 1,
-				when.getUTCMinutes(),
-			)} ${when.getUTCHours()} ${when.getUTCDate()} ${
+			const cronExpression = `${when.getUTCMinutes()} ${when.getUTCHours()} ${when.getUTCDate()} ${
 				when.getUTCMonth() + 1
 			} ? ${when.getUTCFullYear()}`;
 
