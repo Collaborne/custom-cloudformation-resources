@@ -466,70 +466,81 @@ export class ACMCertificate extends CustomResource<
 			throw new Error('Invalid DNS domain validation options');
 		}
 
-		// Request the certificate
-		const request: ACM.RequestCertificateRequest = {
-			...baseRequest,
-			IdempotencyToken: rawIdempotencyToken.replace(/[^\w]/g, '').slice(0, 32),
-			DomainValidationOptions:
-				emailDomainValidationOptions.length === 0
-					? undefined
-					: emailDomainValidationOptions,
-			Options: {
-				CertificateTransparencyLoggingPreference: ctLoggingPreference,
-			},
-		};
-		const { CertificateArn: certificateArn } = await this.acm
-			.requestCertificate(request)
-			.promise();
-		if (!certificateArn) {
-			// Hopefully some hints are in Cloudtrail now ...
-			throw new Error(
-				'Failed to request certificate: No certificate ARN returned',
-			);
-		}
-
-		// We have an ARN, so at least all initial parameters were good enough. Proceed working on the validation ...
-		this.logger.log(`Certificate requested: ${certificateArn}`);
-
-		// If validation was supposed to happen via email, or there are no options provided for DNS validation, then we're
-		// done and the caller knows what to do.
-		// Otherwise we need to go to Route53 and upsert the needed RR there.
-		if (dnsDomainValidationOptions.length !== 0) {
-			const resourceRecords = await this.getValidationResourceRecords(
-				certificateArn,
-			);
-			const hostedZoneId = dnsDomainValidationOptions[0].HostedZoneId;
-			const result = await this.route53
-				.changeResourceRecordSets({
-					HostedZoneId: hostedZoneId,
-					ChangeBatch: {
-						Changes: resourceRecords.map(resourceRecord => ({
-							Action: 'UPSERT',
-							ResourceRecordSet: {
-								Name: resourceRecord.Name,
-								Type: resourceRecord.Type,
-								// The TTL can in theory be very large, but that would potentially hinder our ability
-								// to quickly revoke a certificate. As there shouldn't be many requests to this either, 300
-								// should be just fine.
-								TTL: 300,
-								ResourceRecords: [
-									{
-										Value: resourceRecord.Value,
-									},
-								],
-							},
-						})),
-					},
-				})
+		try {
+			// Request the certificate
+			const request: ACM.RequestCertificateRequest = {
+				...baseRequest,
+				IdempotencyToken: rawIdempotencyToken
+					.replace(/[^\w]/g, '')
+					.slice(0, 32),
+				DomainValidationOptions:
+					emailDomainValidationOptions.length === 0
+						? undefined
+						: emailDomainValidationOptions,
+				Options: {
+					CertificateTransparencyLoggingPreference: ctLoggingPreference,
+				},
+			};
+			const { CertificateArn: certificateArn } = await this.acm
+				.requestCertificate(request)
 				.promise();
+			if (!certificateArn) {
+				// Hopefully some hints are in Cloudtrail now ...
+				throw new Error(
+					'Failed to request certificate: No certificate ARN returned',
+				);
+			}
 
-			this.logger.log(`Route53 change set: ${result.ChangeInfo.Id}`);
+			// We have an ARN, so at least all initial parameters were good enough. Proceed working on the validation ...
+			this.logger.log(`Certificate requested: ${certificateArn}`);
+
+			// If validation was supposed to happen via email, or there are no options provided for DNS validation, then we're
+			// done and the caller knows what to do.
+			// Otherwise we need to go to Route53 and upsert the needed RR there.
+			if (dnsDomainValidationOptions.length !== 0) {
+				this.logger.log('Validation is DNS Domain Validation');
+				const resourceRecords = await this.getValidationResourceRecords(
+					certificateArn,
+				);
+				this.logger.log(`resourceRecords: ${JSON.stringify(resourceRecords)}`);
+				const hostedZoneId = dnsDomainValidationOptions[0].HostedZoneId;
+				this.logger.log(`hostedZoneId: ${hostedZoneId}`);
+				const result = await this.route53
+					.changeResourceRecordSets({
+						HostedZoneId: hostedZoneId,
+						ChangeBatch: {
+							Changes: resourceRecords.map(resourceRecord => ({
+								Action: 'UPSERT',
+								ResourceRecordSet: {
+									Name: resourceRecord.Name,
+									Type: resourceRecord.Type,
+									// The TTL can in theory be very large, but that would potentially hinder our ability
+									// to quickly revoke a certificate. As there shouldn't be many requests to this either, 300
+									// should be just fine.
+									TTL: 300,
+									ResourceRecords: [
+										{
+											Value: resourceRecord.Value,
+										},
+									],
+								},
+							})),
+						},
+					})
+					.promise();
+
+				this.logger.log(`Route53 change set: ${result.ChangeInfo.Id}`);
+			}
+
+			return {
+				Arn: certificateArn,
+				CertificateId: getCertificateId(certificateArn),
+			};
+		} catch (error) {
+			this.logger.error(error);
+
+			throw error;
 		}
-
-		return {
-			Arn: certificateArn,
-			CertificateId: getCertificateId(certificateArn),
-		};
 	}
 
 	private findChangedAttributes(
