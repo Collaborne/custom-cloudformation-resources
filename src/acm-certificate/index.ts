@@ -392,7 +392,6 @@ export class ACMCertificate extends CustomResource<
 	): Promise<ACM.ResourceRecord[]> {
 		let interval: NodeJS.Timeout;
 		let retries = 0;
-		this.logger.log(`getValidationResourceRecords interval: ${interval}`);
 		this.logger.log(`getValidationResourceRecords retries: ${retries}`);
 		return new Promise<ACM.ResourceRecord[]>((resolve, reject) => {
 			interval = setInterval(async () => {
