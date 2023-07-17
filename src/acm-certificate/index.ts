@@ -392,6 +392,8 @@ export class ACMCertificate extends CustomResource<
 	): Promise<ACM.ResourceRecord[]> {
 		let interval: NodeJS.Timeout;
 		let retries = 0;
+		this.logger.log(`getValidationResourceRecords interval: ${interval}`);
+		this.logger.log(`getValidationResourceRecords retries: ${retries}`);
 		return new Promise<ACM.ResourceRecord[]>((resolve, reject) => {
 			interval = setInterval(async () => {
 				const { Certificate: certificate } = await this.acm
@@ -401,6 +403,12 @@ export class ACMCertificate extends CustomResource<
 					reject(new Error(`Cannot find certificate ${certificateArn}`));
 					return;
 				}
+
+				this.logger.log(
+					`getValidationResourceRecords certificate: ${JSON.stringify(
+						certificate,
+					)}`,
+				);
 
 				const dnsDomainValidationOptions = (
 					certificate.DomainValidationOptions ?? []
@@ -417,9 +425,21 @@ export class ACMCertificate extends CustomResource<
 					return;
 				}
 
+				this.logger.log(
+					`getValidationResourceRecords dnsDomainValidationOptions: ${JSON.stringify(
+						dnsDomainValidationOptions,
+					)}`,
+				);
+
 				const resourceRecords = dnsDomainValidationOptions
 					.map(option => option.ResourceRecord)
 					.filter(isDefined);
+				this.logger.log(
+					`getValidationResourceRecords resourceRecords: ${JSON.stringify(
+						resourceRecords,
+					)}`,
+				);
+
 				const missingResourceRecords =
 					dnsDomainValidationOptions.length - resourceRecords.length;
 				if (missingResourceRecords > 0) {
