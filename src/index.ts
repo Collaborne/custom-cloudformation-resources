@@ -14,3 +14,4 @@ export { CustomResource, Response } from './custom-resource';
 // Export actual resources
 export { ACMCertificate } from './acm-certificate';
 export { UserPoolDomainAttributes } from './user-pool-domain-attributes';
+export { CloudFrontWafV2 } from './cloudfront-waf-v2';
