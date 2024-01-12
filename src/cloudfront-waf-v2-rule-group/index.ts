@@ -19,7 +19,7 @@ const SCHEMA = {
 			type: 'number' as const,
 		},
 		Rules: {
-			type: 'object' as const,
+			type: 'string' as const,
 		},
 	},
 	required: ['Name', 'Capacity'],
@@ -50,7 +50,7 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 		physicalResourceId: string,
 		{ Name, Description, Capacity, Rules }: SchemaType<typeof SCHEMA>,
 	): Promise<Response<ResourceAttributes>> {
-		const rules = Rules as Rules;
+		const rules: Rules = JSON.parse(Rules);
 		const ruleGroupParams = {
 			Name,
 			Description,
