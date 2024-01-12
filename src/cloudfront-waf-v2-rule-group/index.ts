@@ -64,6 +64,8 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 			},
 		};
 
+		console.log(`ruleGroupParams: ${JSON.stringify(ruleGroupParams)}`);
+
 		try {
 			const ruleGroup = await this.wafV2
 				.createRuleGroup(ruleGroupParams)
