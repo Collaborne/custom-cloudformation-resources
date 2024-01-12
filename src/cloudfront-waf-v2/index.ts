@@ -4,6 +4,7 @@ import { SchemaType } from '@collaborne/json-schema-to-type';
 
 import { CustomResource, Response } from '../custom-resource';
 import { Logger } from '../logger';
+import { Rules } from 'aws-sdk/clients/wafv2';
 
 const SCHEMA = {
 	type: 'object' as const,
@@ -12,6 +13,9 @@ const SCHEMA = {
 			type: 'string' as const,
 		},
 		MetricName: {
+			type: 'string' as const,
+		},
+		Rules: {
 			type: 'string' as const,
 		},
 	},
@@ -41,14 +45,16 @@ export class CloudFrontWafV2 extends CustomResource<
 
 	public async createResource(
 		physicalResourceId: string,
-		{ Name, MetricName }: SchemaType<typeof SCHEMA>,
+		{ Name, MetricName, Rules }: SchemaType<typeof SCHEMA>,
 	): Promise<Response<ResourceAttributes>> {
+		const rules: Rules = JSON.parse(Rules);
 		const webACLParams = {
 			Name,
 			Scope: SCOPE,
 			DefaultAction: {
 				Allow: {},
 			},
+			Rules: rules,
 			VisibilityConfig: {
 				MetricName,
 				SampledRequestsEnabled: true,
@@ -101,17 +107,30 @@ export class CloudFrontWafV2 extends CustomResource<
 
 	public async updateResource(
 		physicalResourceId: string,
-		{ Name }: SchemaType<typeof SCHEMA>,
+		{ Name, Rules }: SchemaType<typeof SCHEMA>,
 	): Promise<Response<ResourceAttributes>> {
 		const webAcl = await this.getWebAcl(Name);
 
-		if (!webAcl.WebACL) {
-			throw new Error(`WAF V2 is not found ${Name}`);
+		if (!webAcl.WebACL || !webAcl.LockToken) {
+			throw new Error(`WAF V2 is not able to update ${Name}`);
 		}
 
-		console.warn(
-			`WAF V2 is not updatable. You have to delete and create new one.`,
-		);
+		const rules: Rules = JSON.parse(Rules);
+
+		const updateWebAclParams = {
+			Id: webAcl.WebACL.Id,
+			Name,
+			Description: webAcl.WebACL.Description || '',
+			DefaultAction: webAcl.WebACL.DefaultAction,
+			Scope: SCOPE,
+			Rules: rules,
+			VisibilityConfig: webAcl.WebACL.VisibilityConfig,
+			LockToken: webAcl.LockToken,
+		};
+
+		await this.wafV2.updateWebACL(updateWebAclParams).promise();
+
+		console.warn(`WAF V2 is updated ${Name}`);
 
 		return {
 			physicalResourceId,
