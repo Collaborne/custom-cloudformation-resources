@@ -134,7 +134,10 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 
 		return {
 			physicalResourceId,
-			attributes,
+			attributes: {
+				Arn: ruleGroup.RuleGroup?.ARN,
+				Id: ruleGroup.RuleGroup?.Id,
+			},
 		};
 	}
 
