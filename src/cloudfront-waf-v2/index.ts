@@ -120,7 +120,6 @@ export class CloudFrontWafV2 extends CustomResource<
 		const updateWebAclParams = {
 			Id: webAcl.WebACL.Id,
 			Name,
-			Description: webAcl.WebACL.Description || '',
 			DefaultAction: webAcl.WebACL.DefaultAction,
 			Scope: SCOPE,
 			Rules: rules,
