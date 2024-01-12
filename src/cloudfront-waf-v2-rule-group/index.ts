@@ -64,8 +64,6 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 			},
 		};
 
-		console.log(`ruleGroupParams: ${JSON.stringify(ruleGroupParams)}`);
-
 		try {
 			const ruleGroup = await this.wafV2
 				.createRuleGroup(ruleGroupParams)
@@ -74,7 +72,7 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 			if (!ruleGroup || !ruleGroup.Summary?.ARN || !ruleGroup.Summary.Id) {
 				throw new Error('Error creating Rule Group');
 			}
-			console.log('Rule Group created successfully:', ruleGroup.Summary?.ARN);
+			console.debug('Rule Group created successfully:', ruleGroup.Summary?.ARN);
 
 			return {
 				physicalResourceId,
@@ -134,9 +132,6 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 			VisibilityConfig: ruleGroup.RuleGroup.VisibilityConfig,
 			LockToken: ruleGroup.LockToken,
 		};
-		console.log(
-			`updateRuleGroupParams: ${JSON.stringify(updateRuleGroupParams)}`,
-		);
 
 		await this.wafV2.updateRuleGroup(updateRuleGroupParams).promise();
 
@@ -162,7 +157,9 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 			);
 		}
 
-		const ruleGroupSummary = ruleGroups.RuleGroups.find(x => x.Name === name);
+		const ruleGroupSummary = ruleGroups.RuleGroups.find(
+			ruleGroup => ruleGroup.Name === name,
+		);
 
 		if (!ruleGroupSummary) {
 			throw new Error(`Unknown rule group name ${name}`);
@@ -176,10 +173,6 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 				Scope: SCOPE,
 			})
 			.promise();
-
-		if (!ruleGroup.RuleGroup) {
-			throw new Error(`Rule group cannot find for ${name}`);
-		}
 
 		return ruleGroup;
 	}

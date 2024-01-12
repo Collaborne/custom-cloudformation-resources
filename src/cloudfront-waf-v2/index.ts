@@ -62,7 +62,7 @@ export class CloudFrontWafV2 extends CustomResource<
 			if (!webAcl || !webAcl.Summary?.ARN || !webAcl.Summary.Id) {
 				throw new Error('Error creating WebACL');
 			}
-			console.log('WebACL created successfully:', webAcl.Summary?.ARN);
+			console.debug('WebACL created successfully:', webAcl.Summary?.ARN);
 
 			return {
 				physicalResourceId,
@@ -79,14 +79,19 @@ export class CloudFrontWafV2 extends CustomResource<
 
 	public async deleteResource(
 		physicalResourceId: string,
-		{ Name: name }: SchemaType<typeof SCHEMA>,
+		{ Name }: SchemaType<typeof SCHEMA>,
 	): Promise<Response<ResourceAttributes>> {
-		const attributes = await this.getWebAclAttributes(name);
+		const webAcl = await this.getWebAcl(Name);
+
+		if (!webAcl.WebACL || !webAcl.LockToken) {
+			throw new Error(`WAF V2 is not deletable ${Name}`);
+		}
+
 		this.wafV2.deleteWebACL({
-			Name: name,
+			Name,
 			Scope: SCOPE,
-			Id: attributes.Id,
-			LockToken: 'RemoveWAF',
+			Id: webAcl.WebACL.Id,
+			LockToken: webAcl.LockToken,
 		});
 
 		return {
@@ -96,32 +101,46 @@ export class CloudFrontWafV2 extends CustomResource<
 
 	public async updateResource(
 		physicalResourceId: string,
-		{ Name: name }: SchemaType<typeof SCHEMA>,
+		{ Name }: SchemaType<typeof SCHEMA>,
 	): Promise<Response<ResourceAttributes>> {
-		const attributes = await this.getWebAclAttributes(name);
+		const webAcl = await this.getWebAcl(Name);
+
+		if (!webAcl.WebACL) {
+			throw new Error(`WAF V2 is not found ${Name}`);
+		}
+
+		console.warn(
+			`WAF V2 is not updatable. You have to delete and create new one.`,
+		);
 
 		return {
 			physicalResourceId,
-			attributes,
+			attributes: {
+				Arn: webAcl.WebACL?.ARN,
+				Id: webAcl.WebACL?.Id,
+			},
 		};
 	}
 
-	protected async getWebAclAttributes(
-		name: string,
-	): Promise<ResourceAttributes> {
+	protected async getWebAcl(name: string): Promise<WAFV2.GetWebACLResponse> {
 		const webAcls = await this.wafV2.listWebACLs({ Scope: SCOPE }).promise();
 		if (!webAcls) {
 			throw new Error(`Unknown waf name ${name}`);
 		}
 
-		const webAcl = webAcls.WebACLs?.find(webAcl => webAcl.Name === name);
-		if (!webAcl || !webAcl.ARN || !webAcl.Id) {
+		const webAclSummary = webAcls.WebACLs?.find(webAcl => webAcl.Name === name);
+		if (!webAclSummary || !webAclSummary.ARN || !webAclSummary.Id) {
 			throw new Error(`Unknown waf name ${name}`);
 		}
 
-		return {
-			Arn: webAcl?.ARN,
-			Id: webAcl?.Id,
-		};
+		const webAcl = await this.wafV2
+			.getWebACL({
+				Name: name,
+				Id: webAclSummary.Id,
+				Scope: SCOPE,
+			})
+			.promise();
+
+		return webAcl;
 	}
 }
