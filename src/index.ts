@@ -15,3 +15,4 @@ export { CustomResource, Response } from './custom-resource';
 export { ACMCertificate } from './acm-certificate';
 export { UserPoolDomainAttributes } from './user-pool-domain-attributes';
 export { CloudFrontWafV2 } from './cloudfront-waf-v2';
+export { CloudFrontWafV2RuleGroup } from './cloudfront-waf-v2-rule-group';
