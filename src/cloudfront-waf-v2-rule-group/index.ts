@@ -99,7 +99,7 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 				Name: name,
 				Scope: SCOPE,
 				Id: attributes.Id,
-				LockToken: `${name}-delete-token`,
+				LockToken: 'delete',
 			})
 			.promise();
 
@@ -110,9 +110,27 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 
 	public async updateResource(
 		physicalResourceId: string,
-		{ Name: name }: SchemaType<typeof SCHEMA>,
+		{ Name, Description, Rules }: SchemaType<typeof SCHEMA>,
 	): Promise<Response<ResourceAttributes>> {
-		const attributes = await this.getRuleGroupAttributes(name);
+		const ruleGroup = await this.getRuleGroup(Name);
+
+		if (!ruleGroup.RuleGroup) {
+			throw new Error(`Rule group cannot find ${Name}`);
+		}
+
+		const rules: Rules = JSON.parse(Rules);
+
+		await this.wafV2
+			.updateRuleGroup({
+				Id: ruleGroup.RuleGroup?.Id,
+				Name,
+				Description,
+				Scope: SCOPE,
+				Rules: rules,
+				VisibilityConfig: ruleGroup.RuleGroup.VisibilityConfig,
+				LockToken: 'update',
+			})
+			.promise();
 
 		return {
 			physicalResourceId,
@@ -120,13 +138,21 @@ export class CloudFrontWafV2RuleGroup extends CustomResource<
 		};
 	}
 
-	protected async getRuleGroupAttributes(
+	protected async getRuleGroup(
 		name: string,
-	): Promise<ResourceAttributes> {
+	): Promise<WAFV2.GetRuleGroupResponse> {
 		const ruleGroup = await this.wafV2.getRuleGroup({ Name: name }).promise();
 		if (!ruleGroup) {
 			throw new Error(`Unknown rule group name ${name}`);
 		}
+
+		return ruleGroup;
+	}
+
+	protected async getRuleGroupAttributes(
+		name: string,
+	): Promise<ResourceAttributes> {
+		const ruleGroup = await this.getRuleGroup(name);
 
 		if (!ruleGroup.RuleGroup?.ARN || !ruleGroup.RuleGroup.Id) {
 			throw new Error(`Missing properties for rule group ${name}`);
