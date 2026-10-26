@@ -1,5 +1,8 @@
-import { CognitoIdentityServiceProvider } from 'aws-sdk';
-
+import {
+	CognitoIdentityProviderClient,
+	DescribeUserPoolDomainCommand,
+	type DomainDescriptionType,
+} from '@aws-sdk/client-cognito-identity-provider';
 import { SchemaType } from '@collaborne/json-schema-to-type';
 
 import { CustomResource, Response } from '../custom-resource';
@@ -20,16 +23,13 @@ const SCHEMA = {
 	required: ['UserPoolDomain' as const, 'UserPoolId'],
 };
 
-type ResourceAttributes = Pick<
-	CognitoIdentityServiceProvider.DomainDescriptionType,
-	'CloudFrontDistribution'
->;
+type ResourceAttributes = Pick<DomainDescriptionType, 'CloudFrontDistribution'>;
 
 export class UserPoolDomainAttributes extends CustomResource<
 	ResourceAttributes,
 	typeof SCHEMA
 > {
-	private cognitoIdp = new CognitoIdentityServiceProvider();
+	private cognitoIdp = new CognitoIdentityProviderClient({});
 
 	constructor(logicalResourceId: string, logger: Logger) {
 		super(SCHEMA, logicalResourceId, logger);
@@ -68,11 +68,11 @@ export class UserPoolDomainAttributes extends CustomResource<
 	protected async getAttributes(
 		userPoolDomain: string,
 	): Promise<ResourceAttributes> {
-		const response = await this.cognitoIdp
-			.describeUserPoolDomain({
+		const response = await this.cognitoIdp.send(
+			new DescribeUserPoolDomainCommand({
 				Domain: userPoolDomain,
-			})
-			.promise();
+			}),
+		);
 		if (!response.DomainDescription) {
 			throw new Error(`Unknown Cognito user pool domain ${userPoolDomain}`);
 		}

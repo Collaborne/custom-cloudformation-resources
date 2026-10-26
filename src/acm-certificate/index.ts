@@ -1,5 +1,25 @@
-import { ACM, Route53 } from 'aws-sdk';
+import { isDeepStrictEqual } from 'node:util';
 
+import {
+	ACMClient,
+	AddTagsToCertificateCommand,
+	DeleteCertificateCommand,
+	DescribeCertificateCommand,
+	ListTagsForCertificateCommand,
+	RemoveTagsFromCertificateCommand,
+	RequestCertificateCommand,
+	UpdateCertificateOptionsCommand,
+	paginateListCertificates,
+	type CertificateTransparencyLoggingPreference,
+	type ListCertificatesRequest,
+	type RequestCertificateRequest,
+	type ResourceRecord,
+	type Tag,
+} from '@aws-sdk/client-acm';
+import {
+	ChangeResourceRecordSetsCommand,
+	Route53Client,
+} from '@aws-sdk/client-route-53';
 import type { SchemaType } from '@collaborne/json-schema-to-type';
 
 import {
@@ -22,9 +42,10 @@ const EMAIL_DOMAIN_VALIDATION_OPTION_SCHEMA = {
 	},
 	required: ['DomainName' as const, 'ValidationDomain' as const],
 };
-type EmailDomainValidationOption = SchemaType<
-	typeof EMAIL_DOMAIN_VALIDATION_OPTION_SCHEMA
->;
+interface EmailDomainValidationOption {
+	DomainName: string;
+	ValidationDomain: string;
+}
 
 const DNS_DOMAIN_VALIDATION_OPTION_SCHEMA = {
 	type: 'object' as const,
@@ -38,9 +59,10 @@ const DNS_DOMAIN_VALIDATION_OPTION_SCHEMA = {
 	},
 	required: ['DomainName' as const, 'HostedZoneId' as const],
 };
-type DNSDomainValidationOption = SchemaType<
-	typeof DNS_DOMAIN_VALIDATION_OPTION_SCHEMA
->;
+interface DNSDomainValidationOption {
+	DomainName: string;
+	HostedZoneId: string;
+}
 
 const SCHEMA = {
 	type: 'object' as const,
@@ -99,8 +121,11 @@ function isDNSDomainValidationOption(
 }
 
 function getCertificateId(certificateArn: string): string {
-	const lastSlashIndex = certificateArn.lastIndexOf('/');
-	return certificateArn.substring(lastSlashIndex + 1);
+	return certificateArn.slice(certificateArn.lastIndexOf('/') + 1);
+}
+
+function delay(milliseconds: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 // XXX: The AWS::CertificateManager::Certificate uses the ARN as Ref, not an id (and then also doesn't have a .Arn attribute)
@@ -109,8 +134,8 @@ export class ACMCertificate extends CustomResource<
 	typeof SCHEMA,
 	Response<ResourceAttributes>
 > {
-	private acm = new ACM({ region: 'us-east-1' });
-	private route53 = new Route53();
+	private acm = new ACMClient({ region: 'us-east-1' });
+	private route53 = new Route53Client({});
 
 	constructor(logicalResourceId: string, logger: Logger) {
 		super(SCHEMA, logicalResourceId, logger);
@@ -159,9 +184,9 @@ export class ACMCertificate extends CustomResource<
 		// to other stack failures that led to cleanups), the DNS records will be reusable for the next attempt.
 		// This matches the behavior of the original AWS::ACM::Certificate resource; if needed we could make the deletion
 		// optional as the information should be available in the certificate data.
-		await this.acm
-			.deleteCertificate({ CertificateArn: certificateArn })
-			.promise();
+		await this.acm.send(
+			new DeleteCertificateCommand({ CertificateArn: certificateArn }),
+		);
 
 		return {
 			physicalResourceId,
@@ -187,59 +212,48 @@ export class ACMCertificate extends CustomResource<
 
 		const {
 			CertificateTransparencyLoggingPreference: ctLoggingPreference,
-			Tags: tags = [],
+			Tags: rawTags = [],
 		} = params;
+		const tags = rawTags as Tag[];
 		const changedAttributes = this.findChangedAttributes(params, oldParams);
 		if (
 			changedAttributes.length === 1 &&
 			changedAttributes[0] === 'CertificateTransparencyLoggingPreference'
 		) {
 			// Update the preference
-			const certificateArn = await this.findCertificateArn(
+			const certificateArn = await this.requireCertificateArn(
 				physicalResourceId,
 				params.DomainName,
 			);
-			if (!certificateArn) {
-				throw new Error(
-					`Cannot find certificate ${physicalResourceId} (domain ${params.DomainName})`,
-				);
-			}
 
-			await this.acm
-				.updateCertificateOptions({
+			await this.acm.send(
+				new UpdateCertificateOptionsCommand({
 					CertificateArn: certificateArn,
 					Options: {
-						CertificateTransparencyLoggingPreference: ctLoggingPreference,
+						CertificateTransparencyLoggingPreference:
+							ctLoggingPreference as CertificateTransparencyLoggingPreference,
 					},
-				})
-				.promise();
+				}),
+			);
 
 			return {
 				physicalResourceId,
-				attributes: {
-					Arn: certificateArn,
-					CertificateId: getCertificateId(certificateArn),
-				},
+				attributes: this.getAttributes(certificateArn),
 			};
 		} else if (
 			changedAttributes.length === 1 &&
 			changedAttributes[0] === 'Tags'
 		) {
 			// Update tags
-			const certificateArn = await this.findCertificateArn(
+			const certificateArn = await this.requireCertificateArn(
 				physicalResourceId,
 				params.DomainName,
 			);
-			if (!certificateArn) {
-				throw new Error(
-					`Cannot find certificate ${physicalResourceId} (domain ${params.DomainName})`,
-				);
-			}
 
-			const { Tags: existingTags = [] } = await this.acm
-				.listTagsForCertificate({ CertificateArn: certificateArn })
-				.promise();
-			const tagsToAdd: ACM.Tag[] = [];
+			const { Tags: existingTags = [] } = await this.acm.send(
+				new ListTagsForCertificateCommand({ CertificateArn: certificateArn }),
+			);
+			const tagsToAdd: Tag[] = [];
 			for (const tag of tags) {
 				if (
 					!existingTags.find(
@@ -249,14 +263,14 @@ export class ACMCertificate extends CustomResource<
 					tagsToAdd.push(tag);
 				}
 			}
-			await this.acm
-				.addTagsToCertificate({
+			await this.acm.send(
+				new AddTagsToCertificateCommand({
 					CertificateArn: certificateArn,
 					Tags: tagsToAdd,
-				})
-				.promise();
+				}),
+			);
 
-			const tagsToRemove: ACM.Tag[] = [];
+			const tagsToRemove: Tag[] = [];
 			for (const tag of existingTags) {
 				if (
 					!tags.find(({ Key: k, Value: v }) => k === tag.Key && v === tag.Value)
@@ -264,33 +278,25 @@ export class ACMCertificate extends CustomResource<
 					tagsToRemove.push(tag);
 				}
 			}
-			await this.acm
-				.removeTagsFromCertificate({
+			await this.acm.send(
+				new RemoveTagsFromCertificateCommand({
 					CertificateArn: certificateArn,
 					Tags: tagsToRemove,
-				})
-				.promise();
+				}),
+			);
 
 			return {
 				physicalResourceId,
-				attributes: {
-					Arn: certificateArn,
-					CertificateId: getCertificateId(certificateArn),
-				},
+				attributes: this.getAttributes(certificateArn),
 			};
 		} else {
 			// Replace the whole thing, and return a new resource id.
 			// If the old physical resource id contains the old certificate id, replace that, otherwise it's a legacy
 			// resource and we need to _add_ the id.
-			const certificateArn = await this.findCertificateArn(
+			const certificateArn = await this.requireCertificateArn(
 				physicalResourceId,
 				params.DomainName,
 			);
-			if (!certificateArn) {
-				throw new Error(
-					`Cannot find certificate ${physicalResourceId} (domain ${params.DomainName})`,
-				);
-			}
 
 			const newAttributes = await this.createCertificate(
 				params,
@@ -302,7 +308,8 @@ export class ACMCertificate extends CustomResource<
 			if (physicalResourceId.endsWith(`/${getCertificateId(certificateArn)}`)) {
 				const lastSlashIndex = physicalResourceId.lastIndexOf('/');
 				physicalResourceIdPrefix = physicalResourceId.substring(
-					lastSlashIndex + 1,
+					0,
+					lastSlashIndex,
 				);
 			} else {
 				physicalResourceIdPrefix = physicalResourceId;
@@ -318,42 +325,44 @@ export class ACMCertificate extends CustomResource<
 		}
 	}
 
+	private getAttributes(certificateArn: string): ResourceAttributes {
+		return {
+			Arn: certificateArn,
+			CertificateId: getCertificateId(certificateArn),
+		};
+	}
+
+	private async requireCertificateArn(
+		physicalResourceId: string,
+		domainName: string,
+	): Promise<string> {
+		const certificateArn = await this.findCertificateArn(
+			physicalResourceId,
+			domainName,
+		);
+		if (!certificateArn) {
+			throw new Error(
+				`Cannot find certificate ${physicalResourceId} (domain ${domainName})`,
+			);
+		}
+		return certificateArn;
+	}
+
 	private async findCertificateArn(
 		physicalResourceId: string,
 		domainName: string,
 	): Promise<string | undefined> {
-		async function listCertificates(
-			acm: ACM,
-			params: Pick<
-				ACM.ListCertificatesRequest,
-				'CertificateStatuses' | 'Includes'
-			> = {},
-		): Promise<ACM.CertificateSummary[]> {
-			async function collect(
-				knownCertificates: ACM.CertificateSummary[],
-				token?: string,
-			): Promise<ACM.CertificateSummary[]> {
-				const {
-					CertificateSummaryList: newCertificates = [],
-					NextToken: nextToken,
-				} = await acm
-					.listCertificates({
-						...params,
-						NextToken: token,
-					})
-					.promise();
-
-				const resources = [...knownCertificates, ...newCertificates];
-				if (nextToken) {
-					return collect(resources, nextToken);
-				}
-				return resources;
-			}
-
-			return collect([]);
+		const listOptions: Pick<
+			ListCertificatesRequest,
+			'CertificateStatuses' | 'Includes'
+		> = {};
+		const certificates = [];
+		for await (const page of paginateListCertificates(
+			{ client: this.acm },
+			listOptions,
+		)) {
+			certificates.push(...(page.CertificateSummaryList ?? []));
 		}
-
-		const certificates = await listCertificates(this.acm);
 		// Find the certificate that matches the domain, and ideally contains the id in the resource id.
 		// For legacy certificate this isn't true, so we will accept any certificate (with a warning!)
 		let certificate = certificates.find(c => {
@@ -389,77 +398,79 @@ export class ACMCertificate extends CustomResource<
 	 */
 	private async getValidationResourceRecords(
 		certificateArn: string,
-	): Promise<ACM.ResourceRecord[]> {
-		let interval: NodeJS.Timeout;
-		let retries = 0;
-		this.logger.log(`getValidationResourceRecords retries: ${retries}`);
-		return new Promise<ACM.ResourceRecord[]>((resolve, reject) => {
-			interval = setInterval(async () => {
-				const { Certificate: certificate } = await this.acm
-					.describeCertificate({ CertificateArn: certificateArn })
-					.promise();
-				if (!certificate) {
-					reject(new Error(`Cannot find certificate ${certificateArn}`));
-					return;
-				}
+	): Promise<ResourceRecord[]> {
+		const pollingInterval = Number(
+			process.env.SLS_AWS_MONITORING_FREQUENCY || 5000,
+		);
+		const maxAttempts = Number(
+			process.env.SLS_AWS_MONITORING_MAX_ATTEMPTS || 60,
+		);
 
-				this.logger.log(
-					`getValidationResourceRecords certificate: ${JSON.stringify(
+		for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+			const { Certificate: certificate } = await this.acm.send(
+				new DescribeCertificateCommand({ CertificateArn: certificateArn }),
+			);
+			if (!certificate) {
+				throw new Error(`Cannot find certificate ${certificateArn}`);
+			}
+
+			this.logger.log(
+				`getValidationResourceRecords certificate: ${JSON.stringify(
+					certificate,
+				)}`,
+			);
+
+			const dnsDomainValidationOptions = (
+				certificate.DomainValidationOptions ?? []
+			).filter(options => options.ValidationMethod === 'DNS');
+			if (dnsDomainValidationOptions.length === 0) {
+				// Consider this "fatal": There's no indication that this would ever appear on its own so far in the docs.
+				throw new Error(
+					`Cannot find DNS domain validation option in certificate ${certificateArn}: ${JSON.stringify(
 						certificate,
 					)}`,
 				);
+			}
 
-				const dnsDomainValidationOptions = (
-					certificate.DomainValidationOptions ?? []
-				).filter(options => options.ValidationMethod === 'DNS');
-				if (dnsDomainValidationOptions.length === 0) {
-					// Consider this "fatal": There's no indication that this would ever appear on its own so far in the docs.
-					reject(
-						new Error(
-							`Cannot find DNS domain validation option in certificate ${certificateArn}: ${JSON.stringify(
-								certificate,
-							)}`,
-						),
-					);
-					return;
-				}
+			this.logger.log(
+				`getValidationResourceRecords dnsDomainValidationOptions: ${JSON.stringify(
+					dnsDomainValidationOptions,
+				)}`,
+			);
 
-				this.logger.log(
-					`getValidationResourceRecords dnsDomainValidationOptions: ${JSON.stringify(
-						dnsDomainValidationOptions,
-					)}`,
-				);
+			const resourceRecords = dnsDomainValidationOptions
+				.map(option => option.ResourceRecord)
+				.filter(isDefined);
+			this.logger.log(
+				`getValidationResourceRecords resourceRecords: ${JSON.stringify(
+					resourceRecords,
+				)}`,
+			);
 
-				const resourceRecords = dnsDomainValidationOptions
-					.map(option => option.ResourceRecord)
-					.filter(isDefined);
-				this.logger.log(
-					`getValidationResourceRecords resourceRecords: ${JSON.stringify(
-						resourceRecords,
-					)}`,
-				);
-
-				const missingResourceRecords =
-					dnsDomainValidationOptions.length - resourceRecords.length;
-				if (missingResourceRecords > 0) {
-					this.logger.error(
-						`Missing resource records in ${missingResourceRecords} DNS validation options in certificate ${certificateArn} after ${++retries} attempts: ${JSON.stringify(
-							certificate,
-						)}`,
-					);
-					return;
-				}
-
+			const missingResourceRecords =
+				dnsDomainValidationOptions.length - resourceRecords.length;
+			if (missingResourceRecords === 0) {
 				this.logger.log(
 					`Found all validation resource records in certificate ${certificateArn}: ${JSON.stringify(
 						resourceRecords,
 					)}`,
 				);
-				resolve(resourceRecords);
-			}, Number(process.env.SLS_AWS_MONITORING_FREQUENCY || 5000));
-		}).finally(() => {
-			clearInterval(interval);
-		});
+				return resourceRecords;
+			}
+
+			this.logger.error(
+				`Missing resource records in ${missingResourceRecords} DNS validation options in certificate ${certificateArn} after ${attempt} attempts: ${JSON.stringify(
+					certificate,
+				)}`,
+			);
+			if (attempt < maxAttempts) {
+				await delay(pollingInterval);
+			}
+		}
+
+		throw new Error(
+			`Timed out waiting for DNS validation records for certificate ${certificateArn}`,
+		);
 	}
 
 	private async createCertificate(
@@ -471,11 +482,19 @@ export class ACMCertificate extends CustomResource<
 			DomainValidationOptions: domainValidationOptions = [],
 			...baseRequest
 		} = params;
+		const validationOptions = domainValidationOptions as Array<
+			EmailDomainValidationOption | DNSDomainValidationOption
+		>;
 		// Remove all DNS validation options: These aren't supported by the ACM class itself, but rather we need to implement them manually.
-		const emailDomainValidationOptions: EmailDomainValidationOption[] =
-			domainValidationOptions.filter(isEmailDomainValidationOption);
-		const dnsDomainValidationOptions: DNSDomainValidationOption[] =
-			domainValidationOptions.filter(isDNSDomainValidationOption);
+		const emailDomainValidationOptions: EmailDomainValidationOption[] = [];
+		const dnsDomainValidationOptions: DNSDomainValidationOption[] = [];
+		for (const option of validationOptions) {
+			if (isEmailDomainValidationOption(option)) {
+				emailDomainValidationOptions.push(option);
+			} else if (isDNSDomainValidationOption(option)) {
+				dnsDomainValidationOptions.push(option);
+			}
+		}
 		// There must be at most one of these, and that one option must be using the same domain name
 		if (
 			dnsDomainValidationOptions.length > 1 ||
@@ -487,7 +506,7 @@ export class ACMCertificate extends CustomResource<
 
 		try {
 			// Request the certificate
-			const request: ACM.RequestCertificateRequest = {
+			const request: RequestCertificateRequest = {
 				...baseRequest,
 				IdempotencyToken: rawIdempotencyToken
 					.replace(/[^\w]/g, '')
@@ -497,12 +516,13 @@ export class ACMCertificate extends CustomResource<
 						? undefined
 						: emailDomainValidationOptions,
 				Options: {
-					CertificateTransparencyLoggingPreference: ctLoggingPreference,
+					CertificateTransparencyLoggingPreference:
+						ctLoggingPreference as CertificateTransparencyLoggingPreference,
 				},
 			};
-			const { CertificateArn: certificateArn } = await this.acm
-				.requestCertificate(request)
-				.promise();
+			const { CertificateArn: certificateArn } = await this.acm.send(
+				new RequestCertificateCommand(request),
+			);
 			if (!certificateArn) {
 				// Hopefully some hints are in Cloudtrail now ...
 				throw new Error(
@@ -518,14 +538,13 @@ export class ACMCertificate extends CustomResource<
 			// Otherwise we need to go to Route53 and upsert the needed RR there.
 			if (dnsDomainValidationOptions.length !== 0) {
 				this.logger.log('Validation is DNS Domain Validation');
-				const resourceRecords = await this.getValidationResourceRecords(
-					certificateArn,
-				);
+				const resourceRecords =
+					await this.getValidationResourceRecords(certificateArn);
 				this.logger.log(`resourceRecords: ${JSON.stringify(resourceRecords)}`);
 				const hostedZoneId = dnsDomainValidationOptions[0].HostedZoneId;
 				this.logger.log(`hostedZoneId: ${hostedZoneId}`);
-				const result = await this.route53
-					.changeResourceRecordSets({
+				const result = await this.route53.send(
+					new ChangeResourceRecordSetsCommand({
 						HostedZoneId: hostedZoneId,
 						ChangeBatch: {
 							Changes: resourceRecords.map(resourceRecord => ({
@@ -545,10 +564,10 @@ export class ACMCertificate extends CustomResource<
 								},
 							})),
 						},
-					})
-					.promise();
+					}),
+				);
 
-				this.logger.log(`Route53 change set: ${result.ChangeInfo.Id}`);
+				this.logger.log(`Route53 change set: ${result.ChangeInfo?.Id}`);
 			}
 
 			return {
@@ -556,7 +575,7 @@ export class ACMCertificate extends CustomResource<
 				CertificateId: getCertificateId(certificateArn),
 			};
 		} catch (error) {
-			this.logger.error(error);
+			this.logger.error(error instanceof Error ? error.message : String(error));
 
 			throw error;
 		}
@@ -566,32 +585,12 @@ export class ACMCertificate extends CustomResource<
 		params: SchemaType<typeof SCHEMA>,
 		oldParams: unknown,
 	): string[] {
-		function isChanged(to: any, from: any): boolean {
-			switch (typeof from) {
-				case 'undefined':
-					return typeof to !== 'undefined';
-				case 'object':
-					return (
-						typeof to !== 'object' ||
-						!Object.entries(from).reduce(
-							(r, [k, v]) => r && !isChanged(to[k], v),
-							true,
-						)
-					);
-				default:
-					if (Array.isArray(from)) {
-						return (
-							!Array.isArray(to) ||
-							from.length !== to.length ||
-							!from.reduce((r, k, i) => r && to[i] === k, true)
-						);
-					}
-					return from !== to;
-			}
-		}
-
-		return Object.keys(params).filter(key =>
-			isChanged(params[key], (oldParams as Record<any, any>)[key]),
+		return Object.keys(params).filter(
+			key =>
+				!isDeepStrictEqual(
+					(params as Record<string, unknown>)[key],
+					(oldParams as Record<string, unknown>)[key],
+				),
 		);
 	}
 
@@ -609,9 +608,9 @@ export class ACMCertificate extends CustomResource<
 			throw new Error('Missing certificate ARN');
 		}
 
-		const { Certificate: certificate } = await this.acm
-			.describeCertificate({ CertificateArn: certificateArn })
-			.promise();
+		const { Certificate: certificate } = await this.acm.send(
+			new DescribeCertificateCommand({ CertificateArn: certificateArn }),
+		);
 		if (!certificate) {
 			throw new Error(`Cannot find certificate ${certificateArn}`);
 		}

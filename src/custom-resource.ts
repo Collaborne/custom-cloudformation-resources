@@ -1,7 +1,14 @@
-import { CloudWatchEvents } from 'aws-sdk';
-import { crc32 } from 'crc';
-
+import {
+	DeleteRuleCommand,
+	EventBridgeClient,
+	PutRuleCommand,
+	PutTargetsCommand,
+	RemoveTargetsCommand,
+	type PutRuleRequest,
+	type PutTargetsRequest,
+} from '@aws-sdk/client-eventbridge';
 import type { ObjectSchema, SchemaType } from '@collaborne/json-schema-to-type';
+import { crc32 } from 'crc';
 
 import {
 	CustomResourceRequest,
@@ -71,7 +78,7 @@ export abstract class CustomResource<
 > {
 	private static CW_EVENTS_TARGET_ID = 'CustomResource';
 
-	private cwEvents = new CloudWatchEvents({ apiVersion: '2015-10-07' });
+	private cwEvents = new EventBridgeClient({});
 	private requestQueue: (() => Promise<void>)[] = [];
 
 	private currentRequest?:
@@ -154,7 +161,7 @@ export abstract class CustomResource<
 				const { status } = await this.processRequest(request);
 				resolveRequest(status);
 			} catch (err) {
-				rejectRequest(err);
+				rejectRequest(err instanceof Error ? err : new Error(String(err)));
 			} finally {
 				// Remove ourselves from the queue, and execute the next one.
 				this.requestQueue.shift();
@@ -234,10 +241,11 @@ export abstract class CustomResource<
 
 			status = 'SUCCESS';
 		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
 			this.logger.warn(
-				`Uncaught error when handling request "${request.RequestType}": ${err.message}`,
+				`Uncaught error when handling request "${request.RequestType}": ${message}`,
 			);
-			statusReason = err.message;
+			statusReason = message;
 		}
 
 		if (isContinuationRequired(response)) {
@@ -256,15 +264,15 @@ export abstract class CustomResource<
 			// enable it with a suitably-in-the-future expression.
 			// Note that if the rule already exists this will similarly first disable it; as the rule name
 			// and target ID are constant over the life-time of the rule this should all be idempotent.
-			const prepPutRuleParams: CloudWatchEvents.PutRuleRequest = {
+			const prepPutRuleParams: PutRuleRequest = {
 				Name: continuationRuleName,
 				RoleArn: ruleRoleArn,
 				ScheduleExpression: `cron(30 7 19 6 ? 2018)`,
 				State: 'DISABLED',
 			};
-			await this.cwEvents.putRule(prepPutRuleParams).promise();
+			await this.cwEvents.send(new PutRuleCommand(prepPutRuleParams));
 
-			const putTargetsParams: CloudWatchEvents.PutTargetsRequest = {
+			const putTargetsParams: PutTargetsRequest = {
 				Rule: continuationRuleName,
 				Targets: [
 					{
@@ -278,7 +286,7 @@ export abstract class CustomResource<
 					},
 				],
 			};
-			await this.cwEvents.putTargets(putTargetsParams).promise();
+			await this.cwEvents.send(new PutTargetsCommand(putTargetsParams));
 
 			const now = new Date();
 			const whenTs =
@@ -299,13 +307,13 @@ export abstract class CustomResource<
 			this.logger.log(
 				`Scheduling continuation using CWE rule ${continuationRuleName} after ${continuationAfter}s (at ${cronExpression})`,
 			);
-			const schedulePutRuleParams: CloudWatchEvents.PutRuleRequest = {
+			const schedulePutRuleParams: PutRuleRequest = {
 				Name: continuationRuleName,
 				RoleArn: ruleRoleArn,
 				ScheduleExpression: `cron(${cronExpression})`,
 				State: 'ENABLED',
 			};
-			await this.cwEvents.putRule(schedulePutRuleParams).promise();
+			await this.cwEvents.send(new PutRuleCommand(schedulePutRuleParams));
 		} else {
 			// A "definite" status, so write that into the response document
 			const responsePhysicalResourceId =
@@ -324,23 +332,24 @@ export abstract class CustomResource<
 				const continuationRuleName = this.getContinuationRuleName(request);
 				this.logger.log(`Cleaning up CWE rule ${continuationRuleName}`);
 				try {
-					await this.cwEvents
-						.removeTargets({
+					await this.cwEvents.send(
+						new RemoveTargetsCommand({
 							Rule: continuationRuleName,
 							Ids: [CustomResource.CW_EVENTS_TARGET_ID],
-						})
-						.promise();
-					await this.cwEvents
-						.deleteRule({
+						}),
+					);
+					await this.cwEvents.send(
+						new DeleteRuleCommand({
 							Name: continuationRuleName,
-						})
-						.promise();
+						}),
+					);
 				} catch (err) {
 					// Best effort, didn't work, bad luck.
 					// Given that the rule is a single date, this should merely produce garbage in CW Events, but not produce
 					// any other side-effects.
+					const message = err instanceof Error ? err.message : String(err);
 					this.logger.warn(
-						`Cannot remove continuation rule ${continuationRuleName}: ${err.message}`,
+						`Cannot remove continuation rule ${continuationRuleName}: ${message}`,
 					);
 				}
 			}
