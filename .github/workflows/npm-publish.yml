@@ -26,7 +26,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
       - name: Verify tag matches package version
         if: github.event_name == 'push'
-        run: test "${GITHUB_REF_NAME}" = "v$(node --print 'require(\"./package.json\").version')"
+        run: |
+          package_version=$(node --print "require('./package.json').version")
+          test "${GITHUB_REF_NAME}" = "v${package_version}"
       - run: npm run lint
       - run: npm test
       - run: npm run build
