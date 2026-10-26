@@ -3,11 +3,16 @@
 	"version": "1.0.0",
 	"description": "Custom CloudFormation resources",
 	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"lint": "npm run lint:ts",
 		"lint:ts": "eslint --report-unused-disable-directives 'src/**/*.{js,ts,tsx}'",
 		"test": "echo 'No tests yet'",
-		"build": "tsc"
+		"build": "tsc",
+		"prepack": "npm run build"
 	},
 	"repository": {
 		"type": "git",
@@ -42,8 +47,11 @@
 		"typescript": "^6.0.3"
 	},
 	"engines": {
-		"node": ">=22.13.0",
+		"node": ">=24",
 		"npm": ">=10"
+	},
+	"publishConfig": {
+		"access": "public"
 	},
 	"dependencies": {
 		"@aws-sdk/client-acm": "^3.1156.0",
